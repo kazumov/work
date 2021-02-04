@@ -16,7 +16,7 @@ create table clients (
 drop table if exists client_notes;
 create table client_notes (
 	id bigint unsigned primary key not null comment 'Note identifier',
-    client_id int unsigned not null,
+    client_id bigint unsigned not null,
 	note text not null comment 'The note text',
 	foreign key (client_id) references clients(id) on delete cascade
 ) comment 'Notes to the Client' engine=InnoDB;
@@ -25,7 +25,7 @@ drop table if exists projects;
 create table projects (
 	id bigint unsigned primary key not null comment 'Project identifier',
     alias varchar(255) comment 'Project unique verbose identifier',
-	client_id int unsigned not null comment 'Client, associated with the project',
+	client_id bigint unsigned not null comment 'Client, associated with the project',
 	details text null comment 'The short description of the project',
     created datetime default current_timestamp not null comment 'The record creation date',
     finished datetime default null comment 'The project finising date',
@@ -40,7 +40,7 @@ create table projects (
 drop table if exists project_notes;
 create table project_notes (
 	id bigint unsigned primary key not null comment 'Note identifier',
-    project_id int unsigned not null comment 'The project ID',
+    project_id bigint unsigned not null comment 'The project ID',
     note text not null comment 'The note text',
     foreign key (project_id) references projects(id) on delete cascade
 ) comment 'Notes to the Project' engine=InnoDB;
@@ -50,37 +50,50 @@ create table contracts(
     id bigint unsigned primary key not null comment 'Contract identifier',
     alias varchar(100) comment 'Contract alias',
     alias_legal varchar(100) comment 'Contract reference number for the citation',
-    project_id int unsigned not null comment 'The reference to the project',
-    foreign key (project_id) reference projects(id) on delete cascade,
+    project_id bigint unsigned not null comment 'The reference to the project',
     base_url varchar(255) comment 'URL to the document storage',
     source_url varchar(255) comment 'URL to the document source',
     is_active tinyint default 0 not null comment 'Contract is currently in active phase',
     is_suspended tinyint default 0 not null comment 'Contract is currently suspended',
     is_finished tinyint default 0 not null comment 'Contract is successfully finished',
     is_virtual tinyint default 0 not null comment 'The contract created for the budget planning purposes',
-    foreign key (project_id) reference projects(id) on delete cascade,
+    foreign key (project_id) references projects(id) on delete cascade,
     unique key contract_alias_k (alias) comment 'Unique contract alias'
-) comment 'The Contracts' engint=InnoDB;
+) comment 'The Contracts' engine=InnoDB;
 
 # contract service items
 drop table if exists contract_service_items;
-#
-#
-#
+create table contract_service_items (
+    id bigint unsigned primary key not null comment 'Item identifier',
+    contract_id bigint unsigned not null comment 'Contract identifier',
+    idx int unsigned null default 0 comment 'Index for the list representation',
+    caption tinytext not null comment 'Service name',
+    code tinytext null comment 'Service code',
+    price decimal(11, 2) signed not null default 0.0 comment 'Price for unique service',
+    multiplier float unsigned not null default 1.0 comment 'Number or amount of single services',
+    tax decimal(11, 2) signed not null default 0.0 comment 'Tax',
+    total decimal(11, 2) signed not null default 0.0 comment 'Total sum for the service item',
+    notes tinytext null comment 'Additional information for the service',
+    foreign key (contract_id) references contracts(id) on delete cascade
+) comment 'Contract material items' engine=InnoDB;
 
 
 # contract material items
 drop table if exists contract_material_items;
 create table contract_material_items (
     id bigint unsigned primary key not null comment 'Item identifier',
-    index int unsigned null default 0 comment 'Index for the list representation',
+    contract_id bigint unsigned not null comment 'Contract identifier',
+    idx int unsigned null default 0 comment 'Index for the list representation',
     caption tinytext not null comment 'Material item name/title/caption',
     code tinytext not null comment 'Material item code',
     url varchar(255) null comment 'Material description',
-    price int(11, 2) unsigned,
-    tax int(11, 2) unsigned,
-    notes tinytext null comment 'Additiona information for the item'
-)
+    price decimal(11, 2) signed comment 'Price for single item',
+    multiplier float unsigned not null default 1.0 comment 'Number for countable or amount for non-countable items',
+    tax decimal(11, 2) signed not null default 0.0 comment 'Tax',
+    total decimal(11, 2) signed not null default 0.0 comment 'Total sum for the material item',
+    notes tinytext null comment 'Additiona information for the item',
+    foreign key (contract_id) references contracts(id) on delete cascade
+) comment 'Contract material items' engine=InnoDB;
 
 # warehouse
 drop table if exists warehouse;
@@ -101,10 +114,10 @@ create table accounts(
 drop table if exists ledger;
 create table ledger (
 	id bigint unsigned primary key not null comment 'The ledger entry identifier',
-    contract_id int unsigned not null comment 'Reference to the contract',
-    created datetime defalut current_timestamp not null comment "Timestamp at record creation",
-    account_id int unsigned not null comment 'Account',
-    value int(11,2) int not null comment 'Transaction value',
+    contract_id bigint unsigned not null comment 'Reference to the contract',
+    created datetime default current_timestamp not null comment "Timestamp at record creation",
+    account_id bigint unsigned not null comment 'Account',
+    value decimal(11, 2) signed not null comment 'Transaction value',
     foreign key (contract_id) references contracts(id) on delete cascade,
     foreign key (account_id) references accounts(id) on delete cascade
 ) comment 'The Ledger' engine=InnoDB;
@@ -112,13 +125,11 @@ create table ledger (
 drop table if exists virtual_ledger;
 create table virtual_ledger (
     id bigint unsigned primary key not null  comment 'The legder entry identifier',
-    contract_id int unsigned not null comment 'Reference to the contract',
-    created datetime defalut current_timestamp not null comment "Timestamp at record creation",
-    account_id int unsigned not null comment 'Account',
-    value int(11,2) int not null comment 'Transaction value',
+    contract_id bigint unsigned not null comment 'Reference to the contract',
+    created datetime default current_timestamp not null comment "Timestamp at record creation",
+    value decimal(11, 2) signed not null comment 'Transaction value',
     description varchar(100) comment 'Information about the transaction',
-    foreign key (contract_id) references contracts(id) on delete cascade,
-    foreign key (account_id) references accounts(id) on delete cascade
+    foreign key (contract_id) references contracts(id) on delete cascade
 ) comment 'The Virtual Ledger';
 
 
@@ -135,41 +146,104 @@ begin
 end //
 delimiter ;
 
-drop procedure if exists show_client_by_alias;
+drop procedure if exists show_client_with_alias;
 delimiter //
-create procedure show_client_by_alias(alias varchar(20))
+create procedure show_client_with_alias(in client_alias varchar(20))
 begin
-	select * from clients where alias like concat('%', alias, '%') order by alias asc;
+	select * from clients where alias = client_alias order by alias asc;
+end //
+delimiter ;
+
+drop procedure if exists show_client_with_id;
+delimiter //
+create procedure show_client_with_id(in client_id bigint)
+begin
+	select distinct * from clients where id = client_id;
 end //
 delimiter ;
 
 drop procedure if exists create_client;
 delimiter //
-create procedure create_client(name tinytext, 
+create procedure create_client(in name tinytext, 
                                 alias varchar(50), 
                                 description tinytext, 
                                 email varchar(255),
-                                return_record_id tinyint default 0,
-                                return_record tinyint default 0)
+                                return_record_id tinyint,
+                                return_record tinyint)
 begin
     declare new_id bigint default uuid_short();
     insert into clients (id, name, alias, description, email) values (new_id, name, alias, description, email);
+    
     if return_record_id = 1 then
         select new_id as id;
+	end if;
+    
     if return_record = 1 then
         select * from clients where id = new_id;
+	end if;
 end //
 delimiter ;
+
+drop function if exists client_id_with_alias;
+delimiter //
+create function client_id_with_alias(client_alias varchar(50))
+returns bigint deterministic
+begin
+	return (select id from clients where alias = client_alias limit 1);
+end //
+delimiter ;
+
+
 
 drop procedure if exists create_project;
 delimiter //
-create procedure create_project(alias varchar(255),
-                                client_id)
+create procedure create_project(in client bigint, 
+								alias varchar(255),
+                                details tinytext,
+                                created datetime,
+                                return_record_id tinyint,
+                                return_record tinyint)
 begin
-    insert into projects (alias, client_id, details, created, is_finished, is_active, is_suspended, is_virtual) 
-        values (alias, client_id, details, created, 0, 0, 0, 1)
+	declare new_id bigint default uuid_short();
+    if created is null then
+		set created = current_timestamp;
+    end if;
+    
+    insert into projects (id, alias, client_id, details, created, is_finished, is_active, is_suspended, is_virtual) 
+        values (new_id, alias, client, details, created, 0, 0, 0, 1);
+	
+    if return_record_id = 1 then
+        select new_id as id;
+	end if;
+    
+	if return_record = 1 then
+		select * from projects where id = new_id;
+    end if;
 end //
 delimiter ;
 
-insert into clients (name, client_alias, description, email) values ("Alu Justec", "ALU", "Corn producer and seller", "alu.justec@gmail.com");
-insert into project (project_alias, client_id, project_details, project_created, project_finished, project_is_active, project_is_suspended, project_is_sketch) values ();
+
+drop procedure if exists find_projects_with_client;
+delimiter //
+create procedure find_projects_with_client(in client bigint)
+begin
+	select * from projects where client_id = client;
+end //
+delimiter ;
+
+show errors;
+
+drop procedure if exists show_all_projects;
+delimiter //
+create procedure show_all_projects()
+begin
+	select 
+	p.*, 
+    c.name as client_name, 
+    c.alias as client_alias 
+	from projects as p 
+	join clients as c 
+		on p.client_id = c.id;
+end //
+delimiter ;
+
